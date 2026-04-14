@@ -10,6 +10,16 @@ export class AgentRun {
     describe: 'Run the agent',
   })
   async agentRun() {
-    console.log(await this._agentGraphService.createGraph('hello', true));
+    const stream = this._agentGraphService.start('local-org', {
+      research: 'Write a short post about using Postiz for content planning.',
+      isPicture: false,
+      format: 'one_short',
+      tone: 'personal',
+    });
+
+    for await (const event of stream) {
+      console.log(event);
+      break;
+    }
   }
 }
