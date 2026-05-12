@@ -27,7 +27,7 @@ services:
       # CLOUDFLARE_ACCESS_KEY: 'your-access-key'
       # CLOUDFLARE_SECRET_ACCESS_KEY: 'your-secret-access-key'
       # CLOUDFLARE_BUCKETNAME: 'your-bucket-name'
-      # CLOUDFLARE_BUCKET_URL: 'https://your-bucket-url.r2.cloudflarestorage.com/'
+      # CLOUDFLARE_BUCKET_URL: 'https://pub-YOUR_ID.r2.dev'  # Use your PUBLIC R2.dev URL, not the private r2.cloudflarestorage.com endpoint
       # CLOUDFLARE_REGION: 'auto'
 
       # === Social Media API Settings

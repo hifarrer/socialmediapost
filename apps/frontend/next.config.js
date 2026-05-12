@@ -5,6 +5,7 @@ import { withSentryConfig } from '@sentry/nextjs';
 const nextConfig = {
   experimental: {
     proxyTimeout: 90_000,
+    middlewareClientMaxBodySize: '100mb',
   },
   // Document-Policy header for browser profiling
   async headers() {
