@@ -23,7 +23,7 @@ The project uses tailwind 3, before writing any component look at:
 - /apps/frontend/src/app/colors.scss
 - /apps/frontend/src/app/global.scss
 - /apps/frontend/tailwind.config.js
- 
+  
 All the --color-custom* are deprecated, don't use them.
 
 And check other components in the system before to get the right design.
