@@ -13,7 +13,6 @@ import {
 import { TikTokDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/tiktok.dto';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Integration } from '@prisma/client';
-import axios from 'axios';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 
 @Rules(
@@ -534,16 +533,73 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
+  private async downloadToBuffer(url: string): Promise<Buffer> {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const https = require('https');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const http = require('http');
+    const client = url.startsWith('https') ? https : http;
+
+    return new Promise((resolve, reject) => {
+      client.get(url, (res: any) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return this.downloadToBuffer(res.headers.location).then(resolve, reject);
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      }).on('error', reject);
+    });
+  }
+
+  private async uploadChunk(
+    uploadUrl: string,
+    chunk: Buffer,
+    start: number,
+    end: number,
+    totalSize: number
+  ): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const https = require('https');
+    const url = new URL(uploadUrl);
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: url.hostname,
+          path: url.pathname + url.search,
+          method: 'PUT',
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+            'Content-Length': chunk.length,
+            'Content-Type': 'video/mp4',
+          },
+        },
+        (res: any) => {
+          res.resume();
+          res.on('end', () => {
+            if (res.statusCode === 200 || res.statusCode === 201 || res.statusCode === 206) {
+              resolve();
+            } else {
+              reject(new Error(`Chunk upload failed with status ${res.statusCode}`));
+            }
+          });
+        }
+      );
+      req.on('error', reject);
+      req.write(chunk);
+      req.end();
+    });
+  }
+
   private async uploadVideoViaFileUpload(
     firstPost: PostDetails<TikTokDto>,
     accessToken: string
   ): Promise<string> {
     const videoUrl = firstPost?.media?.[0]?.url || firstPost?.media?.[0]?.path!;
 
-    const { data: videoData } = await axios.get(videoUrl, {
-      responseType: 'arraybuffer',
-    });
-    const videoBuffer = Buffer.from(videoData);
+    const videoBuffer = await this.downloadToBuffer(videoUrl);
     const videoSize = videoBuffer.length;
 
     const FILE_UPLOAD_CHUNK_SIZE = 10 * 1024 * 1024;
@@ -583,17 +639,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       const end = Math.min(start + chunkSize, videoSize) - 1;
       const chunk = videoBuffer.subarray(start, end + 1);
 
-      await axios.put(upload_url, chunk, {
-        headers: {
-          'Content-Range': `bytes ${start}-${end}/${videoSize}`,
-          'Content-Length': String(chunk.length),
-          'Content-Type': 'video/mp4',
-        },
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-        validateStatus: (status) =>
-          status === 200 || status === 201 || status === 206,
-      });
+      await this.uploadChunk(upload_url, chunk, start, end, videoSize);
     }
 
     return publish_id;
