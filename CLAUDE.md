@@ -6,7 +6,7 @@ You can find things like:
 - Analytics
 - Team management
 - Media library
-
+ 
 This project is a monorepo with a root only package.json of dependencies.
 Made with PNPM.
 We have 3 important folders
