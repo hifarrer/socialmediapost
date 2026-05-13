@@ -516,133 +516,39 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     return mediaUrl;
   }
 
-  private buildPhotoSourceInfoBody(firstPost: PostDetails<TikTokDto>) {
-    return {
-      post_mode:
-        firstPost?.settings?.content_posting_method === 'DIRECT_POST'
-          ? 'DIRECT_POST'
-          : 'MEDIA_UPLOAD',
-      media_type: 'PHOTO',
-      source_info: {
-        source: 'PULL_FROM_URL',
-        photo_cover_index: 0,
-        photo_images: firstPost.media?.map((p) =>
-          this.toVerifiedDomainUrl(p.url || p.path)
-        ),
-      },
-    };
-  }
+  private buildTikokSourceInfoBody(firstPost: PostDetails<TikTokDto>) {
+    const isPhoto = (firstPost?.media?.[0]?.path?.indexOf('mp4') || -1) === -1;
 
-  private async downloadToBuffer(url: string): Promise<Buffer> {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const https = require('https');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const http = require('http');
-    const client = url.startsWith('https') ? https : http;
-
-    return new Promise((resolve, reject) => {
-      client.get(url, (res: any) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return this.downloadToBuffer(res.headers.location).then(resolve, reject);
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      }).on('error', reject);
-    });
-  }
-
-  private async uploadChunk(
-    uploadUrl: string,
-    chunk: Buffer,
-    start: number,
-    end: number,
-    totalSize: number
-  ): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const https = require('https');
-    const url = new URL(uploadUrl);
-
-    return new Promise((resolve, reject) => {
-      const req = https.request(
-        {
-          hostname: url.hostname,
-          path: url.pathname + url.search,
-          method: 'PUT',
-          headers: {
-            'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-            'Content-Length': chunk.length,
-            'Content-Type': 'video/mp4',
-          },
+    if (isPhoto) {
+      return {
+        post_mode:
+          firstPost?.settings?.content_posting_method === 'DIRECT_POST'
+            ? 'DIRECT_POST'
+            : 'MEDIA_UPLOAD',
+        media_type: 'PHOTO',
+        source_info: {
+          source: 'PULL_FROM_URL',
+          photo_cover_index: 0,
+          photo_images: firstPost.media?.map((p) =>
+            this.toVerifiedDomainUrl(p.url || p.path)
+          ),
         },
-        (res: any) => {
-          res.resume();
-          res.on('end', () => {
-            if (res.statusCode === 200 || res.statusCode === 201 || res.statusCode === 206) {
-              resolve();
-            } else {
-              reject(new Error(`Chunk upload failed with status ${res.statusCode}`));
-            }
-          });
-        }
-      );
-      req.on('error', reject);
-      req.write(chunk);
-      req.end();
-    });
-  }
-
-  private async uploadVideoViaFileUpload(
-    firstPost: PostDetails<TikTokDto>,
-    accessToken: string
-  ): Promise<string> {
-    const videoUrl = firstPost?.media?.[0]?.url || firstPost?.media?.[0]?.path!;
-
-    const videoBuffer = await this.downloadToBuffer(videoUrl);
-    const videoSize = videoBuffer.length;
-
-    const FILE_UPLOAD_CHUNK_SIZE = 10 * 1024 * 1024;
-    const chunkSize =
-      videoSize <= FILE_UPLOAD_CHUNK_SIZE ? videoSize : FILE_UPLOAD_CHUNK_SIZE;
-    const totalChunkCount = Math.ceil(videoSize / chunkSize);
-
-    const initData = await (
-      await this.fetch(
-        `https://open.tiktokapis.com/v2/post/publish${this.postingMethod(
-          firstPost.settings.content_posting_method,
-          false
-        )}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json; charset=UTF-8',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            ...this.buildTikokPostInfoBody(firstPost),
-            source_info: {
-              source: 'FILE_UPLOAD',
-              video_size: videoSize,
-              chunk_size: chunkSize,
-              total_chunk_count: totalChunkCount,
-            },
-          }),
-        }
-      )
-    ).json();
-
-    const { publish_id, upload_url } = initData.data;
-
-    for (let i = 0; i < totalChunkCount; i++) {
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, videoSize) - 1;
-      const chunk = videoBuffer.subarray(start, end + 1);
-
-      await this.uploadChunk(upload_url, chunk, start, end, videoSize);
+      };
     }
 
-    return publish_id;
+    const media = firstPost?.media?.[0];
+    const videoUrl = this.toVerifiedDomainUrl(media?.url || media?.path!);
+    return {
+      source_info: {
+        source: 'PULL_FROM_URL',
+        video_url: videoUrl,
+        ...(media?.thumbnailTimestamp!
+          ? {
+              video_cover_timestamp_ms: media?.thumbnailTimestamp!,
+            }
+          : {}),
+      },
+    };
   }
 
   async post(
@@ -652,34 +558,28 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     integration: Integration
   ): Promise<PostResponse[]> {
     const [firstPost] = postDetails;
-    const isPhoto = (firstPost?.media?.[0]?.path?.indexOf('mp4') || -1) === -1;
 
-    let publish_id: string;
-
-    if (!isPhoto) {
-      publish_id = await this.uploadVideoViaFileUpload(firstPost, accessToken);
-    } else {
-      const initData = await (
-        await this.fetch(
-          `https://open.tiktokapis.com/v2/post/publish${this.postingMethod(
-            firstPost.settings.content_posting_method,
-            true
-          )}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json; charset=UTF-8',
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              ...this.buildTikokPostInfoBody(firstPost),
-              ...this.buildPhotoSourceInfoBody(firstPost),
-            }),
-          }
-        )
-      ).json();
-      publish_id = initData.data.publish_id;
-    }
+    const {
+      data: { publish_id },
+    } = await (
+      await this.fetch(
+        `https://open.tiktokapis.com/v2/post/publish${this.postingMethod(
+          firstPost.settings.content_posting_method,
+          (firstPost?.media?.[0]?.path?.indexOf('mp4') || -1) === -1
+        )}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=UTF-8',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            ...this.buildTikokPostInfoBody(firstPost),
+            ...this.buildTikokSourceInfoBody(firstPost),
+          }),
+        }
+      )
+    ).json();
 
     const { url, id: videoId } = await this.uploadedVideoSuccess(
       integration.profile!,
