@@ -506,6 +506,16 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
+  private toVerifiedDomainUrl(mediaUrl: string): string {
+    const bucketUrl = process.env.CLOUDFLARE_BUCKET_URL;
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (bucketUrl && frontendUrl && mediaUrl.startsWith(bucketUrl)) {
+      const filename = mediaUrl.slice(bucketUrl.length + 1);
+      return `${frontendUrl}/media-proxy/${filename}`;
+    }
+    return mediaUrl;
+  }
+
   private buildTikokSourceInfoBody(firstPost: PostDetails<TikTokDto>) {
     const isPhoto = (firstPost?.media?.[0]?.path?.indexOf('mp4') || -1) === -1;
 
@@ -519,16 +529,19 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
         source_info: {
           source: 'PULL_FROM_URL',
           photo_cover_index: 0,
-          photo_images: firstPost.media?.map((p) => p.url || p.path),
+          photo_images: firstPost.media?.map((p) =>
+            this.toVerifiedDomainUrl(p.url || p.path)
+          ),
         },
       };
     }
 
     const media = firstPost?.media?.[0];
+    const videoUrl = this.toVerifiedDomainUrl(media?.url || media?.path!);
     return {
       source_info: {
         source: 'PULL_FROM_URL',
-        video_url: media?.url || media?.path!,
+        video_url: videoUrl,
         ...(media?.thumbnailTimestamp!
           ? {
               video_cover_timestamp_ms: media?.thumbnailTimestamp!,
