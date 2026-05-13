@@ -519,19 +519,19 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
         source_info: {
           source: 'PULL_FROM_URL',
           photo_cover_index: 0,
-          photo_images: firstPost.media?.map((p) => p.path),
+          photo_images: firstPost.media?.map((p) => p.url || p.path),
         },
       };
     }
 
+    const media = firstPost?.media?.[0];
     return {
       source_info: {
         source: 'PULL_FROM_URL',
-        video_url: firstPost?.media?.[0]?.path!,
-        ...(firstPost?.media?.[0]?.thumbnailTimestamp!
+        video_url: media?.url || media?.path!,
+        ...(media?.thumbnailTimestamp!
           ? {
-              video_cover_timestamp_ms:
-                firstPost?.media?.[0]?.thumbnailTimestamp!,
+              video_cover_timestamp_ms: media?.thumbnailTimestamp!,
             }
           : {}),
       },
