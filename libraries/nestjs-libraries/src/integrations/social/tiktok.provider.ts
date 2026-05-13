@@ -13,6 +13,7 @@ import {
 import { TikTokDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/tiktok.dto';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Integration } from '@prisma/client';
+import axios from 'axios';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 
 @Rules(
@@ -539,16 +540,10 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
   ): Promise<string> {
     const videoUrl = firstPost?.media?.[0]?.url || firstPost?.media?.[0]?.path!;
 
-    const videoResponse = await fetch(videoUrl);
-    if (!videoResponse.ok) {
-      throw new BadBody(
-        'tiktok-video-download',
-        `Failed to download video: ${videoResponse.status}`,
-        Buffer.from(''),
-        'Failed to download video for TikTok upload'
-      );
-    }
-    const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+    const { data: videoData } = await axios.get(videoUrl, {
+      responseType: 'arraybuffer',
+    });
+    const videoBuffer = Buffer.from(videoData);
     const videoSize = videoBuffer.length;
 
     const FILE_UPLOAD_CHUNK_SIZE = 10 * 1024 * 1024;
@@ -586,30 +581,19 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     for (let i = 0; i < totalChunkCount; i++) {
       const start = i * chunkSize;
       const end = Math.min(start + chunkSize, videoSize) - 1;
-      const chunk = videoBuffer.slice(start, end + 1);
+      const chunk = videoBuffer.subarray(start, end + 1);
 
-      const uploadResponse = await fetch(upload_url, {
-        method: 'PUT',
+      await axios.put(upload_url, chunk, {
         headers: {
           'Content-Range': `bytes ${start}-${end}/${videoSize}`,
           'Content-Length': String(chunk.length),
           'Content-Type': 'video/mp4',
         },
-        body: chunk,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        validateStatus: (status) =>
+          status === 200 || status === 201 || status === 206,
       });
-
-      if (
-        !uploadResponse.ok &&
-        uploadResponse.status !== 206 &&
-        uploadResponse.status !== 201
-      ) {
-        throw new BadBody(
-          'tiktok-chunk-upload',
-          await uploadResponse.text(),
-          Buffer.from(''),
-          `Failed to upload video chunk ${i + 1}/${totalChunkCount}`
-        );
-      }
     }
 
     return publish_id;
